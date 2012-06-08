@@ -1,0 +1,20 @@
+Implementation of "tweaked" version of Anubis block cipher in PHP.
+
+ANUBIS is a block cipher designed by Vincent Rijmen and
+Paulo S. L. M. Barreto that operates on data blocks of length 128 bits,
+and uses keys of length 128 to 320 bits in steps of 32 bits. Really it's
+just a variety of Rijndael cipher so it supposed to be as strong as original
+Rijndael is. The authors claim the algorithm to be secure against a number
+of attacks, including four-round differential and linear analysis, as well
+as related-key, interpolation, boomerang, truncated differential, impossible
+differential, and saturation attacks. Although many involutional components
+can make a cipher more susceptible to distinguishing attacks exploiting the
+cycle structure of permutations within the cipher, no attack strategy for
+the Anubis cipher has been presented. Today only bruteforce attack can be
+applied to this cipher.
+
+ANUBIS is not (and will never be) patented. It may be used free of charge
+for any purpose.
+
+Brief description: http://en.wikipedia.org/wiki/Anubis_(cipher)
+Details: http://www.larc.usp.br/~pbarreto/AnubisPage.html
