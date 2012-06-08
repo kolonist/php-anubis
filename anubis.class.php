@@ -807,7 +807,7 @@ class Anubis {
      * If you use binary keys, you must use byte string of correct length.
      *
      * @param string $key Key to encode data.
-     * @param bool $raw_key If set to TRUE then $key is byte array with
+     * @param bool $raw_key If set to TRUE then $key is byte string with
      *                      correct key.
      */
     public function setKey($key, $raw_key = false) {
@@ -867,6 +867,7 @@ class Anubis {
      * appended with 0x00-octets to proper length.
      *
      * @param string $data The data buffer to be encrypted.
+     * @return string Encrypted data.
      */
     public function encrypt($data) {
         $blocks = $this->dataPrepare($data);
@@ -884,6 +885,10 @@ class Anubis {
      * Decrypt data.
      *
      * @param string $data The data buffer to be decrypted.
+     * @return string Decripted data. Note that if source data wasn't
+     *                multiple of 16, result of this method is not equal
+     *                to source data, but it's appended with 0x00-octets to
+     *                length that is multiple of 16.
      */
     public function decrypt($data) {
         $blocks = $this->dataPrepare($data);
@@ -946,7 +951,7 @@ class Anubis {
      *
      * @param string $src Filepath to encrypted file.
      * @param string $dest Filepath to decrypted file.
-     * @param string $size Size to truncate result file to.
+     * @param int $size Size to truncate result file to.
      */
     public function decryptFile($src, $dest, $size = false) {
         if(($src_handle = fopen($src , 'rb')) === false) {

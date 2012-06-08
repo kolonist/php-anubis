@@ -13,7 +13,7 @@ $cypher = new Anubis();
 //never do it if file supposed to be greater than several KB
 $cypher->file_blocksize = filesize($src);
 
-$cypher->key = '\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0';
+$cypher->setKey("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", true);
 
 $size = $cypher->encryptFile($src, $encrypted);
 $cypher->decryptFile($encrypted, $decrypted, $size);
