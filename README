@@ -1,4 +1,6 @@
-Implementation of "tweaked" version of Anubis block cipher in PHP.
+Implementation of "tweaked" version of Anubis block cipher. Cipher Block
+Chaining (CBC) mode used to encrypt and decrypt data that are longer
+than 16 octets.
 
 ANUBIS is a block cipher designed by Vincent Rijmen and
 Paulo S. L. M. Barreto that operates on data blocks of length 128 bits,
