@@ -1,6 +1,8 @@
 <?php
 /**
- * Implementation of "tweaked" version of Anubis block cipher.
+ * Implementation of "tweaked" version of Anubis block cipher. Cipher Block
+ * Chaining (CBC) mode used to encrypt and decrypt data that are longer
+ * than 16 octets.
  *
  * ANUBIS is a block cipher designed by Vincent Rijmen and
  * Paulo S. L. M. Barreto that operates on data blocks of length 128 bits,
@@ -464,13 +466,6 @@ class Anubis {
     protected $KDF_salt = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
 
     /**
-     * Count of rounds to use with KDF. Just use 1 because we don't need to
-     * hide password we just need to make it random-like.
-     * @var int
-     */
-    protected $KDF_rounds = 1;
-
-    /**
      * Hash algorithm to use with KDF. Use strong hash function to avoid
      * collisions.
      * @var string
@@ -696,62 +691,53 @@ class Anubis {
 
 
     /**
-     * Implementation of the PBKDF2 key derivation function as described in
-     * RFC 2898.
+     * Key derivation function (HMAC).
      *
-     * @param string $PRF Hash algorithm.
+     * @param string $algo Hash algorithm.
      * @param string $P Password.
      * @param string $S Salt.
-     * @param int $c Iteration count.
-     * @param mixed $dkLen Derived key length (in octets). If $dkLen is FALSE
-     *                     then length will be set to $PRF output length (in
-     *                     octets).
-     * @param bool $raw_output When set to TRUE, outputs raw binary data. FALSE
-     *                         outputs lowercase hexits.
-     * @return mixed Derived key or FALSE if $dkLen > (2^32 - 1) * hLen (hLen
-     *               denotes the length in octets of $PRF output).
+     * @param int $dkLen Derived key length (in octets).
+     * @return string Derived key.
      */
-    public static function pbkdf2($PRF, $P, $S, $c, $dkLen = false, $raw_output = false) {
-        //default $hLen is $PRF output length
-        $hLen = strlen(hash($PRF, '', true));
-        if ($dkLen === false) $dkLen = $hLen;
-
-        if ($dkLen <= (pow(2, 32) - 1) * $hLen) {
-            $DK = '';
-
-            //create key
-            for ($block = 1; $block <= $dkLen; $block++) {
-                //initial hash for this block
-                $ib = $h = hash_hmac($PRF, $S.pack('N', $block), $P, true);
-
-                //perform block iterations
-                for ($i = 1; $i < $c; $i++) {
-                    $ib ^= ($h = hash_hmac($PRF, $h, $P, true));
-                }
-
-                //append iterated block
-                $DK .= $ib;
-            }
-
-            $DK = substr($DK, 0, $dkLen);
-            if (!$raw_output) $DK = bin2hex($DK);
-
-            return $DK;
-
-        //derived key too long
-        } else {
-            return false;
+    protected function kdf($algo, $P, $S, $dkLen) {
+        $DK = '';
+        while (strlen($DK) < $dkLen) {
+            $DK .= hash_hmac($algo, $DK.$P, $S, true);
         }
+        $DK = substr($DK, 0, $dkLen);
+
+        return $DK;
     }
 
 
     /**
-     * Split data into 128 bit blocks.
+     * Generate Initialisation Vector (IV) to use while encrypt data in
+     * Cipher Block Chaining (CBC) mode.
+     *
+     * @result string 16 octets string containing IV.
+     */
+    protected function generateIV() {
+        //use KDF on time and random
+        return $this->kdf($this->KDF_algo, microtime().((string) mt_rand()), $this->KDF_salt, 16);
+    }
+
+
+    /**
+     * Split data into 128 bit blocks. Note that as this cypher is block
+     * cypher then source dataset should be multiple of 16 octets, so source
+     * dataset will be appended with random octets to proper length, last
+     * octet will tell how many octets was added. If source length is
+     * multiple of 16 than one block will be added with chr(16) at the end.
      *
      * @param string $data The data buffer.
+     * @param bool $append_block If TRUE (default) then last block will be
+     *                           appended as described above. If FALSE then
+     *                           last block will be left untouched. You need
+     *                           to set it FALSE wlile perform decrypt
+     *                           routine.
      * @return array Array of 128-bit blocks.
      */
-    protected function dataPrepare($data) {
+    protected function dataPrepare($data, $append_block = true) {
         $blocks = [];
 
         $blocks_count = ceil(strlen($data) / 16);
@@ -759,9 +745,31 @@ class Anubis {
             $blocks[] = substr($data, $i * 16, 16);
         }
 
-        //append last block with 0x00-octets if it is less than 128 bit
-        if (strlen($blocks[$blocks_count - 1]) < 16) {
-            $blocks[$blocks_count - 1] .= str_repeat(chr(0), 16 - strlen($blocks[$blocks_count - 1]));
+        //append block to observe 16 octets length
+        if ($append_block) {
+            //length of last block if there is one or 16 to add empty block
+            //below
+            $block_len = 16;
+            if (sizeof($blocks) > 0) {
+                $block_len = strlen($blocks[$blocks_count - 1]);
+            }
+
+            //as last block is 16 bytes length we need to add one more block to
+            //make last byte of message always point to added bytes length
+            if ($block_len == 16) {
+                $blocks[] = '';
+                $block_len = 0;
+                $blocks_count++;
+            }
+
+            //append last block with random octets if it is less than 128 bit
+            //last octet will tell how many octets added
+            if ($block_len < 16) {
+                for ($i = 0; $i < 15 - $block_len; $i++) {
+                    $blocks[$blocks_count - 1] .= chr(mt_rand(0, 255));
+                }
+                $blocks[$blocks_count - 1] .= chr($i + 1);
+            }
         }
 
         return $blocks;
@@ -770,10 +778,10 @@ class Anubis {
 
     /**
      * Create binary key of length 128, 160, 192, 224, 256, 288, or 320 bit
-     * from text string of arbitrary length using pbkdf2 algorithm.
+     * from text string of arbitrary length using kdf() method.
      *
      * @param string $src_key Text representation of cypher key.
-     * @return string Binary key. It will be allways the same length or a
+     * @return string Binary key. It will be always the same length or a
      *                bit more as $src_key.
      */
     protected function keyPrepare($src_key) {
@@ -794,7 +802,7 @@ class Anubis {
             }
         }
 
-        $key = self::pbkdf2($this->KDF_algo, $src_key, $this->KDF_salt, $this->KDF_rounds, $length, true);
+        $key = $this->kdf($this->KDF_algo, $src_key, $this->KDF_salt, $length);
         return $key;
     }
 
@@ -835,11 +843,6 @@ class Anubis {
                 $this->KDF_salt = $value;
             break;
 
-            //set rounds to use in KDF
-            case 'KDF_rounds':
-                $this->KDF_rounds = $value;
-            break;
-
             //set hash algorithm to use in KDF. Use only algorithms that are
             //acceptable by hash_hmac() PHP function
             case 'KDF_algo':
@@ -862,19 +865,23 @@ class Anubis {
 
 
     /**
-     * Encrypt data. Note that as this cypher is block cypher then source
-     * dataset should be multiple of 16 octets, so source dataset will be
-     * appended with 0x00-octets to proper length.
+     * Encrypt data. Note that result is always bigger than source. First 16
+     * octets in the result set is Initialisation vector (IV) we need to
+     * implement Cipher Block Chaining (CBC) encryption method.
      *
-     * @param string $data The data buffer to be encrypted.
-     * @return string Encrypted data.
+     * @param string $data The data string to be encrypted.
+     * @return string Encrypted data as raw byte string.
      */
     public function encrypt($data) {
         $blocks = $this->dataPrepare($data);
 
-        $cypher = '';
+        //Initialisation Vector (IV)
+        $register = $this->generateIV();
+        $cypher = $register;
+
         foreach ($blocks as $block) {
-            $cypher .= $this->crypt($block, $this->roundKeyEnc);
+            $register = $this->crypt($register ^ $block, $this->roundKeyEnc);
+            $cypher .= $register;
         }
 
         return $cypher;
@@ -884,33 +891,36 @@ class Anubis {
     /**
      * Decrypt data.
      *
-     * @param string $data The data buffer to be decrypted.
-     * @return string Decripted data. Note that if source data wasn't
-     *                multiple of 16, result of this method is not equal
-     *                to source data, but it's appended with 0x00-octets to
-     *                length that is multiple of 16.
+     * @param string $data The data string to be decrypted.
+     * @return string Decrypted data.
      */
     public function decrypt($data) {
-        $blocks = $this->dataPrepare($data);
+        $blocks = $this->dataPrepare($data, false);
+
+        //first block is Initialization Vector (IV)
+        $register = array_shift($blocks);
 
         $decrypted = '';
         foreach ($blocks as $block) {
-            $decrypted .= $this->crypt($block, $this->roundKeyDec);
+            $decrypted .= $register ^ $this->crypt($block, $this->roundKeyDec);
+            $register = $block;
         }
+
+        //as last octet represents count of added octets to match required
+        //message length, take it and cut message to initial length
+        $decrypted = substr($decrypted, 0, -ord(substr($decrypted, -1, 1)));
 
         return $decrypted;
     }
 
 
     /**
-     * Encrypt file. Note that as this cypher is block cypher then source
-     * dataset should be multiple of 16 octets, so source dataset will be
-     * appended with 0x00-octets to proper length. To get real size of
-     * source file use value this function returns.
+     * Encrypt file. Note that result is always bigger than source. First 16
+     * octets in the result set is Initialisation vector (IV) we need to
+     * implement Cipher Block Chaining (CBC) encryption method.
      *
      * @param string $src Filepath to file being encrypted.
      * @param string $dest Filepath to encrypted file.
-     * @return int Size of source file in bytes.
      */
     public function encryptFile($src, $dest) {
         if(($src_handle = fopen($src , 'rb')) === false) {
@@ -923,15 +933,32 @@ class Anubis {
         }
         flock($dest_handle, LOCK_EX);
 
+        //Initialisation Vector (IV)
+        $register = $this->generateIV();
+        $cypher = $register;
+
         //encode file reading it by blocks
         while (!feof($src_handle)) {
             $data = fread($src_handle, $this->file_blocksize);
 
-            //something read except eof
-            if (strlen($data) > 0) {
-                $cypher = $this->encrypt($data);
-                fwrite($dest_handle, $cypher);
+            //current chunk doesn't contain lask block so don't modify it
+            $last_block = false;
+
+            //chunk contains last block
+            if (strlen($data) < $this->file_blocksize || feof($src_handle)) {
+                $last_block = true;
             }
+            $blocks = $this->dataPrepare($data, $last_block);
+
+            //encrypt data
+            foreach ($blocks as $block) {
+                $register = $this->crypt($register ^ $block, $this->roundKeyEnc);
+                $cypher .= $register;
+            }
+
+            fwrite($dest_handle, $cypher);
+
+            $cypher = '';
         }
 
         flock($dest_handle, LOCK_UN);
@@ -939,21 +966,15 @@ class Anubis {
 
         flock($src_handle, LOCK_UN);
         fclose($src_handle);
-
-        return filesize($src);
     }
 
     /**
-     * Decrypt file. As this cypher is block cypher then source dataset
-     * might be appended by 0x00 octets, from 1 to 15 octets. So if you know
-     * real size of source file you can pass it as the third parameter and
-     * function will truncate result file to size you need.
+     * Decrypt file.
      *
      * @param string $src Filepath to encrypted file.
      * @param string $dest Filepath to decrypted file.
-     * @param int $size Size to truncate result file to.
      */
-    public function decryptFile($src, $dest, $size = false) {
+    public function decryptFile($src, $dest) {
         if(($src_handle = fopen($src , 'rb')) === false) {
             throw new Exception("Can't read file `$src`.");
         }
@@ -964,25 +985,41 @@ class Anubis {
         }
         flock($dest_handle, LOCK_EX);
 
+        //read Initialization Vector (IV)
+        $register = fread($src_handle, 16);
+
+        //last byte of decoded chunk to know count of appended octets at the
+        //end of file decoding. Also keep in mind that decoded file will be
+        //shorter by IV length (16 octets) and tail.
+        $tail = 16;
+
         //decode file reading it by blocks
         while (!feof($src_handle)) {
             $data = fread($src_handle, $this->file_blocksize);
 
             //something read except eof
             if (strlen($data) > 0) {
-                $cypher = $this->decrypt($data);
-                fwrite($dest_handle, $cypher);
+                $blocks = $this->dataPrepare($data, false);
+
+                $decrypted = '';
+                foreach ($blocks as $block) {
+                    $decrypted .= $register ^ $this->crypt($block, $this->roundKeyDec);
+                    $register = $block;
+                }
+
+                $tail = ord(substr($decrypted, -1, 1)) + 16;
+
+                fwrite($dest_handle, $decrypted);
             }
         }
 
-        if ($size !== false) ftruncate($dest_handle, $size);
+        //adjust file size
+        ftruncate($dest_handle, filesize($src) - $tail);
 
         flock($dest_handle, LOCK_UN);
         fclose($dest_handle);
 
         flock($src_handle, LOCK_UN);
         fclose($src_handle);
-
-        return filesize($src);
     }
 }
