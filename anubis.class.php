@@ -481,6 +481,28 @@ class Anubis {
 
 
     /**
+     * Shift $value to $r bits like $value >> $r.
+     * This is messy hack for 32-bit signed integer values for x86 systems.
+     */
+    protected function rot($value, $r) {
+        if ($r === 0) return $value;
+        if ($r > 0) {
+            $result = $value >> $r;
+
+            if (PHP_INT_SIZE === 8) return $result;
+
+            $mask = 0xffffffff;
+            switch($r) {
+                case 24: $mask = 0x000000ff; break;
+                case 16: $mask = 0x0000ffff; break;
+                case  8: $mask = 0x00ffffff; break;
+            }
+            return $result & $mask;
+        }
+    }
+
+
+    /**
      * Create the Anubis key schedule for a given cipher key.
      *
      * @param $key The 32N-bit cipher key.
@@ -490,7 +512,7 @@ class Anubis {
         //determine the N length parameter:
         $N = strlen($key) / 4; // consider only the first 4 * N octets
         if (!is_int($N) || $N < 4 || $N > 10) {
-            throw new Exception("Invalid Anubis key size: ".((string) (32 * $N))." bits.");
+            throw new Exception("Invalid Anubis key size: ".(32 * $N)." bits.");
         }
 
         //arrays of size $N
@@ -512,35 +534,35 @@ class Anubis {
         //generate R + 1 round keys:
         for ($r = 0; $r <= $R; $r++) {
             //generate r-th round key K^r:
-            $K0 = $this->T4[($kappa[$N - 1] >> 24)       ];
-            $K1 = $this->T4[($kappa[$N - 1] >> 16) & 0xff];
-            $K2 = $this->T4[($kappa[$N - 1] >>  8) & 0xff];
-            $K3 = $this->T4[($kappa[$N - 1]      ) & 0xff];
+            $K0 = $this->T4[$this->rot($kappa[$N - 1], 24)       ];
+            $K1 = $this->T4[$this->rot($kappa[$N - 1], 16) & 0xff];
+            $K2 = $this->T4[$this->rot($kappa[$N - 1],  8) & 0xff];
+            $K3 = $this->T4[          ($kappa[$N - 1]    ) & 0xff];
 
             for ($t = $N - 2; $t >= 0; $t--) {
-                $K0 = $this->T4[($kappa[$t] >> 24)] ^
-                    ($this->T5[($K0 >> 24)       ] & 0xff000000) ^
-                    ($this->T5[($K0 >> 16) & 0xff] & 0x00ff0000) ^
-                    ($this->T5[($K0 >>  8) & 0xff] & 0x0000ff00) ^
-                    ($this->T5[($K0      ) & 0xff] & 0x000000ff);
+                $K0 = $this->T4[$this->rot($kappa[$t], 24)] ^
+                     ($this->T5[$this->rot($K0, 24)       ] & 0xff000000) ^
+                     ($this->T5[$this->rot($K0, 16) & 0xff] & 0x00ff0000) ^
+                     ($this->T5[$this->rot($K0,  8) & 0xff] & 0x0000ff00) ^
+                     ($this->T5[          ($K0    ) & 0xff] & 0x000000ff);
 
-                $K1 = $this->T4[($kappa[$t] >> 16) & 0xff] ^
-                    ($this->T5[($K1 >> 24)        ] & 0xff000000) ^
-                    ($this->T5[($K1 >> 16)  & 0xff] & 0x00ff0000) ^
-                    ($this->T5[($K1 >>  8)  & 0xff] & 0x0000ff00) ^
-                    ($this->T5[($K1       ) & 0xff] & 0x000000ff);
+                $K1 = $this->T4[$this->rot($kappa[$t], 16) & 0xff] ^
+                     ($this->T5[$this->rot($K1, 24)       ] & 0xff000000) ^
+                     ($this->T5[$this->rot($K1, 16) & 0xff] & 0x00ff0000) ^
+                     ($this->T5[$this->rot($K1,  8) & 0xff] & 0x0000ff00) ^
+                     ($this->T5[          ($K1    ) & 0xff] & 0x000000ff);
 
-                $K2 = $this->T4[($kappa[$t] >> 8) & 0xff] ^
-                    ($this->T5[($K2 >> 24)       ] & 0xff000000) ^
-                    ($this->T5[($K2 >> 16) & 0xff] & 0x00ff0000) ^
-                    ($this->T5[($K2 >>  8) & 0xff] & 0x0000ff00) ^
-                    ($this->T5[($K2      ) & 0xff] & 0x000000ff);
+                $K2 = $this->T4[$this->rot($kappa[$t], 8) & 0xff] ^
+                     ($this->T5[$this->rot($K2, 24)       ] & 0xff000000) ^
+                     ($this->T5[$this->rot($K2, 16) & 0xff] & 0x00ff0000) ^
+                     ($this->T5[$this->rot($K2,  8) & 0xff] & 0x0000ff00) ^
+                     ($this->T5[          ($K2    ) & 0xff] & 0x000000ff);
 
-                $K3 = $this->T4[($kappa[$t]) & 0xff] ^
-                    ($this->T5[($K3 >> 24)       ] & 0xff000000) ^
-                    ($this->T5[($K3 >> 16) & 0xff] & 0x00ff0000) ^
-                    ($this->T5[($K3 >>  8) & 0xff] & 0x0000ff00) ^
-                    ($this->T5[($K3      ) & 0xff] & 0x000000ff);
+                $K3 = $this->T4[          ($kappa[$t]) & 0xff] ^
+                     ($this->T5[$this->rot($K3, 24)       ] & 0xff000000) ^
+                     ($this->T5[$this->rot($K3, 16) & 0xff] & 0x00ff0000) ^
+                     ($this->T5[$this->rot($K3,  8) & 0xff] & 0x0000ff00) ^
+                     ($this->T5[          ($K3    ) & 0xff] & 0x000000ff);
             }
 
             $this->roundKeyEnc[$r][0] = $K0;
@@ -551,10 +573,10 @@ class Anubis {
             //compute kappa ^ (r + ) from kappa ^ r:
             for ($i = 0; $i < $N; $i++) {
                 $inter[$i] =
-                    $this->T0[($kappa[$i] >> 24)] ^
-                    $this->T1[($kappa[($N + $i - 1) % $N] >> 16) & 0xff] ^
-                    $this->T2[($kappa[($N + $i - 2) % $N] >>  8) & 0xff] ^
-                    $this->T3[($kappa[($N + $i - 3) % $N]      ) & 0xff];
+                    $this->T0[$this->rot($kappa[$i], 24)] ^
+                    $this->T1[$this->rot($kappa[($N + $i - 1) % $N], 16) & 0xff] ^
+                    $this->T2[$this->rot($kappa[($N + $i - 2) % $N],  8) & 0xff] ^
+                    $this->T3[          ($kappa[($N + $i - 3) % $N]    ) & 0xff];
             }
 
             $kappa[0] =
@@ -580,10 +602,10 @@ class Anubis {
             for ($i = 0; $i < 4; $i++) {
                 $v = $this->roundKeyEnc[$R - $r][$i];
                 $this->roundKeyDec[$r][$i] =
-                    $this->T0[$this->T4[($v >> 24)       ] & 0xff] ^
-                    $this->T1[$this->T4[($v >> 16) & 0xff] & 0xff] ^
-                    $this->T2[$this->T4[($v >>  8) & 0xff] & 0xff] ^
-                    $this->T3[$this->T4[($v      ) & 0xff] & 0xff];
+                    $this->T0[$this->T4[$this->rot($v, 24)       ] & 0xff] ^
+                    $this->T1[$this->T4[$this->rot($v, 16) & 0xff] & 0xff] ^
+                    $this->T2[$this->T4[$this->rot($v,  8) & 0xff] & 0xff] ^
+                    $this->T3[$this->T4[          ($v    ) & 0xff] & 0xff];
             }
         }
     }
@@ -616,24 +638,24 @@ class Anubis {
         //R - 1 full rounds:
         for ($r = 1; $r < $R; $r++) {
             $inter[0] =
-                $this->T0[($state[0] >> 24)] ^
-                $this->T1[($state[1] >> 24)] ^
-                $this->T2[($state[2] >> 24)] ^
-                $this->T3[($state[3] >> 24)] ^
+                $this->T0[$this->rot($state[0], 24)] ^
+                $this->T1[$this->rot($state[1], 24)] ^
+                $this->T2[$this->rot($state[2], 24)] ^
+                $this->T3[$this->rot($state[3], 24)] ^
                 $roundKey[$r][0];
 
             $inter[1] =
-                $this->T0[($state[0] >> 16) & 0xff] ^
-                $this->T1[($state[1] >> 16) & 0xff] ^
-                $this->T2[($state[2] >> 16) & 0xff] ^
-                $this->T3[($state[3] >> 16) & 0xff] ^
+                $this->T0[$this->rot($state[0], 16) & 0xff] ^
+                $this->T1[$this->rot($state[1], 16) & 0xff] ^
+                $this->T2[$this->rot($state[2], 16) & 0xff] ^
+                $this->T3[$this->rot($state[3], 16) & 0xff] ^
                 $roundKey[$r][1];
 
             $inter[2] =
-                $this->T0[($state[0] >>  8) & 0xff] ^
-                $this->T1[($state[1] >>  8) & 0xff] ^
-                $this->T2[($state[2] >>  8) & 0xff] ^
-                $this->T3[($state[3] >>  8) & 0xff] ^
+                $this->T0[$this->rot($state[0],  8) & 0xff] ^
+                $this->T1[$this->rot($state[1],  8) & 0xff] ^
+                $this->T2[$this->rot($state[2],  8) & 0xff] ^
+                $this->T3[$this->rot($state[3],  8) & 0xff] ^
                 $roundKey[$r][2];
 
             $inter[3] =
@@ -650,31 +672,31 @@ class Anubis {
 
         //last round:
         $inter[0] =
-            ($this->T0[($state[0] >> 24)] & 0xff000000) ^
-            ($this->T1[($state[1] >> 24)] & 0x00ff0000) ^
-            ($this->T2[($state[2] >> 24)] & 0x0000ff00) ^
-            ($this->T3[($state[3] >> 24)] & 0x000000ff) ^
+            ($this->T0[$this->rot($state[0], 24)] & 0xff000000) ^
+            ($this->T1[$this->rot($state[1], 24)] & 0x00ff0000) ^
+            ($this->T2[$this->rot($state[2], 24)] & 0x0000ff00) ^
+            ($this->T3[$this->rot($state[3], 24)] & 0x000000ff) ^
             $roundKey[$R][0];
 
         $inter[1] =
-            ($this->T0[($state[0] >> 16) & 0xff] & 0xff000000) ^
-            ($this->T1[($state[1] >> 16) & 0xff] & 0x00ff0000) ^
-            ($this->T2[($state[2] >> 16) & 0xff] & 0x0000ff00) ^
-            ($this->T3[($state[3] >> 16) & 0xff] & 0x000000ff) ^
+            ($this->T0[$this->rot($state[0], 16) & 0xff] & 0xff000000) ^
+            ($this->T1[$this->rot($state[1], 16) & 0xff] & 0x00ff0000) ^
+            ($this->T2[$this->rot($state[2], 16) & 0xff] & 0x0000ff00) ^
+            ($this->T3[$this->rot($state[3], 16) & 0xff] & 0x000000ff) ^
             $roundKey[$R][1];
 
         $inter[2] =
-            ($this->T0[($state[0] >>  8) & 0xff] & 0xff000000) ^
-            ($this->T1[($state[1] >>  8) & 0xff] & 0x00ff0000) ^
-            ($this->T2[($state[2] >>  8) & 0xff] & 0x0000ff00) ^
-            ($this->T3[($state[3] >>  8) & 0xff] & 0x000000ff) ^
+            ($this->T0[$this->rot($state[0],  8) & 0xff] & 0xff000000) ^
+            ($this->T1[$this->rot($state[1],  8) & 0xff] & 0x00ff0000) ^
+            ($this->T2[$this->rot($state[2],  8) & 0xff] & 0x0000ff00) ^
+            ($this->T3[$this->rot($state[3],  8) & 0xff] & 0x000000ff) ^
             $roundKey[$R][2];
 
         $inter[3] =
-            ($this->T0[($state[0]) & 0xff] & 0xff000000) ^
-            ($this->T1[($state[1]) & 0xff] & 0x00ff0000) ^
-            ($this->T2[($state[2]) & 0xff] & 0x0000ff00) ^
-            ($this->T3[($state[3]) & 0xff] & 0x000000ff) ^
+            ($this->T0[$state[0] & 0xff] & 0xff000000) ^
+            ($this->T1[$state[1] & 0xff] & 0x00ff0000) ^
+            ($this->T2[$state[2] & 0xff] & 0x0000ff00) ^
+            ($this->T3[$state[3] & 0xff] & 0x000000ff) ^
             $roundKey[$R][3];
 
         //map cipher state to byte array block (mu^{-1}):
@@ -718,7 +740,8 @@ class Anubis {
      */
     protected function generateIV() {
         //use KDF on time and random
-        return $this->kdf($this->KDF_algo, microtime().((string) mt_rand()), $this->KDF_salt, 16);
+        return $this->kdf($this->KDF_algo, microtime().mt_rand(), $this->KDF_salt, 16);
+        //return $this->kdf($this->KDF_algo, 0xffffffffffffffffffffffffffffffff, $this->KDF_salt, 16);
     }
 
 
