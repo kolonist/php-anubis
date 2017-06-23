@@ -740,8 +740,7 @@ class Anubis {
      */
     protected function generateIV() {
         //use KDF on time and random
-        return $this->kdf($this->KDF_algo, microtime().mt_rand(), $this->KDF_salt, 16);
-        //return $this->kdf($this->KDF_algo, 0xffffffffffffffffffffffffffffffff, $this->KDF_salt, 16);
+        return $this->kdf($this->KDF_algo, microtime().random_int(PHP_INT_MIN, PHP_INT_MAX), $this->KDF_salt, 16);
     }
 
 
@@ -788,10 +787,10 @@ class Anubis {
             //append last block with random octets if it is less than 128 bit
             //last octet will tell how many octets added
             if ($block_len < 16) {
-                for ($i = 0; $i < 15 - $block_len; $i++) {
-                    $blocks[$blocks_count - 1] .= chr(mt_rand(0, 255));
+                if ($block_len < 15) {
+                    $blocks[$blocks_count - 1] .= random_bytes(15 - $block_len);
                 }
-                $blocks[$blocks_count - 1] .= chr($i + 1);
+                $blocks[$blocks_count - 1] .= chr(16 - $block_len);
             }
         }
 
